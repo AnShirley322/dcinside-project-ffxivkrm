@@ -1,20 +1,21 @@
 (async () => {
-  // 
+  //
   const MAP_URL =
     "https://raw.githubusercontent.com/AnShirley322/dcinside-project-ffxivkrm/main/map.json";
 
-  // ===== 키 전처리 =====
+  // ===== 키 정리 =====
   function cleanKey(s) {
     if (!s) return "";
     return s
-      .replace(/[\u00A0\u200B\u200C\u200D\uFEFF]/g, "") // NBSP/zero-width 등 제거
+      .replace(/[\u00A0\u200B\u200C\u200D\uFEFF]/g, "") // 숨은 공백 제거
       .replace(/\u3000/g, " ")                           // 전각 공백 → 일반 공백
       .replace(/[“”„‟«»‚‘’‹›"']/g, "")                  // 다양한 따옴표 제거
+      .replace(/[&;]+$/g, "")                           // ★ 꼬리 &나 ; 제거
       .trim()
       .replace(/\s+/g, " ");                             // 연속 공백 1칸
   }
 
-  // map.json 로드 후, 키도 동일 규칙으로 정규화
+  // ===== map.json 키도 정규화 =====
   function normalizeKeymap(rawMap) {
     const out = {};
     for (const [k, v] of Object.entries(rawMap || {})) {
@@ -31,7 +32,11 @@
     if (res.ok) {
       const raw = await res.json();
       KEYMAP = normalizeKeymap(raw);
-      console.log("[FFXIVKR IMG] map.json 불러오기 성공:", Object.keys(KEYMAP).length, "개 항목");
+      console.log(
+        "[FFXIVKR IMG] map.json 불러오기 성공:",
+        Object.keys(KEYMAP).length,
+        "개 항목"
+      );
     } else {
       console.warn("[FFXIVKR IMG] map.json 불러오기 실패:", res.status);
     }
@@ -39,7 +44,7 @@
     console.warn("[FFXIVKR IMG] map.json 불러오기 오류:", e);
   }
 
-  // ===== 에디터 탐색(textarea / contenteditable / iframe) =====
+  // ===== 에디터 찾기 =====
   function findEditorArea() {
     const ta =
       document.querySelector('textarea[name="memo"]') ||
@@ -57,21 +62,21 @@
         const doc = ifr.contentDocument;
         if (!doc) continue;
         const innerCE = doc.querySelector('[contenteditable="true"]');
-        if (innerCE) return { type: "iframe-contenteditable", el: innerCE, doc, where: "iframe CE" };
+        if (innerCE)
+          return { type: "iframe-contenteditable", el: innerCE, doc, where: "iframe CE" };
         const innerTA = doc.querySelector("textarea");
-        if (innerTA) return { type: "iframe-textarea", el: innerTA, doc, where: "iframe TA" };
+        if (innerTA)
+          return { type: "iframe-textarea", el: innerTA, doc, where: "iframe TA" };
       } catch {
-        /* cross-origin이면 접근 불가 */
+        /* cross-origin 접근 불가 무시 */
       }
     }
     return null;
   }
 
-  // ===== <이미지:키> 패턴 (폭넓게 허용) =====
-  // 시작: <, ＜(FF1C), 〈(3008), &lt;, &amp;lt;
-  // 끝:   >, ＞(FF1E), 〉(3009), &gt;, &amp;gt;
+  // ===== <이미지:키> 패턴 (HTML 엔티티·전각 괄호 전부 허용) =====
   const IMG_MARK_RE =
-    /(?:(?:&amp;)?lt;|[<\uFF1C\u3008])\s*이미지\s*:\s*(["“”'`]?)\s*([\s\S]*?)\s*\1\s*(?:(?:&amp;)?gt;|[>\uFF1E\u3009])/gi;
+    /(?:&lt;|&amp;lt;|[<\uFF1C\u3008])\s*이미지\s*:\s*(["“”'`]?)\s*([\s\S]*?)\s*\1\s*(?:&gt;|&amp;gt;|[>\uFF1E\u3009])/gi;
 
   function replaceMarkersInString(str) {
     const matches = Array.from(str.matchAll(IMG_MARK_RE));
@@ -80,12 +85,12 @@
       const key = cleanKey(rawKey);
       const url = KEYMAP[key];
       console.log("[FFXIVKR IMG] 키:", JSON.stringify(key), "→", url ? "HIT" : "MISS");
-      if (!url) return m; // 매핑 없으면 그대로 둠
+      if (!url) return m;
       return `<img src="${url.replace(/"/g, "&quot;")}" alt="${key}" />`;
     });
   }
 
-  // ===== 변환 실행 =====
+  // ===== 실제 변환 수행 =====
   function processEditorNow(editor) {
     try {
       if (!editor) editor = findEditorArea();
@@ -117,7 +122,7 @@
     return false;
   }
 
-  // 제출 직전 자동 변환
+  // ===== 글 제출 시 자동 변환 =====
   window.addEventListener(
     "submit",
     () => {
@@ -127,7 +132,7 @@
     true
   );
 
-  // 수동 변환 버튼
+  // ===== 수동 변환 버튼 =====
   function mountButton() {
     if (document.getElementById("ffxivkr-btn")) return;
     const btn = document.createElement("button");
