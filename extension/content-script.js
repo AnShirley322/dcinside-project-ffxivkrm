@@ -1,20 +1,35 @@
 (async () => {
-  /* ===== 실행 대상 갤러리 제한: ffxivkr (mgallery 글쓰기/수정만) ===== */
+  /* ===== 대상 갤 제한: 탑 프레임에서만 엄격 검사, iframe에서는 완화 ===== */
   const TARGET_GALLERY_ID = "ffxivkr";
-  function pageInfo() {
+  const IS_TOP = window.top === window;
+
+  function topPageInfoFallback() {
+    // 탑 프레임에서만 호출
     try {
       const u = new URL(location.href);
-      const isWrite = /\/mgallery\/board\/write\//.test(u.pathname);
-      const isModify = /\/mgallery\/board\/modify\//.test(u.pathname);
+      const isWrite  = /\/mgallery\/board\/write\//i.test(u.pathname);
+      const isModify = /\/mgallery\/board\/modify\//i.test(u.pathname);
       const id = u.searchParams.get("id");
       return { isWrite, isModify, id, ok: (id === TARGET_GALLERY_ID) && (isWrite || isModify) };
     } catch {
       return { isWrite: false, isModify: false, id: null, ok: false };
     }
   }
-  const PI = pageInfo();
-  if (!PI.ok) return;
 
+  // 프레임별 실행 허용 여부 결정
+  let PI = { isWrite: false, isModify: false, ok: true };
+  if (IS_TOP) {
+    PI = topPageInfoFallback();
+    if (!PI.ok) return; // 탑이 대상이 아니면 종료
+  } else {
+    // 하위 프레임(에디터)의 경우: 탑 프레임이 이미 대상 페이지여야 주입됨
+    // 크로스오리진이면 top.location 접근 불가 → 그냥 동작 허용 (manifest로 이미 경로 제한됨)
+    PI.ok = true;
+    // 수정/쓰기 추정치: URL path가 비어있을 수 있어 폼/버튼을 보고 추정할 수도 있지만, 여기선 무조건 동작
+    // 편집기가 주로 수정 화면에서 문제라, 아래 로직이 모든 프레임에서 안전하게 동작하도록 구성함
+  }
+
+  // 🔗 GitHub map.json RAW 주소
   const MAP_URL =
     "https://raw.githubusercontent.com/AnShirley322/dcinside-project-ffxivkrm/main/map.json";
 
@@ -38,6 +53,7 @@
     return out;
   }
   function toast(msg) {
+    if (!IS_TOP) return; // 토스트는 탑에서만
     const id = "ffxivkr-toast";
     let t = document.getElementById(id);
     if (!t) {
@@ -74,14 +90,13 @@
       const raw = await res.json();
       KEYMAP = normalizeKeymap(raw);
       REVMAP = buildReverseMap(KEYMAP);
-      console.log("[FFXIVKR IMG] map.json 불러오기 성공:", Object.keys(KEYMAP).length, "개");
+      console.log("[FFXIVKR IMG] map.json OK:", Object.keys(KEYMAP).length);
     } else {
-      console.warn("[FFXIVKR IMG] map.json 불러오기 실패:", res.status);
+      console.warn("[FFXIVKR IMG] map.json HTTP 실패:", res.status);
     }
   } catch (e) {
-    console.warn("[FFXIVKR IMG] map.json 불러오기 오류:", e);
+    console.warn("[FFXIVKR IMG] map.json 오류:", e);
   }
-
   function normUrl(u) {
     try { return decodeURIComponent(u).replace(/"/g, "&quot;"); } catch { return u; }
   }
@@ -136,10 +151,7 @@
     "(?:&gt;|&amp;gt;|[>\\uFF1E\\u3009])",
     "gi"
   );
-
   function replaceMarkersInString(str) {
-    const matches = Array.from(str.matchAll(IMG_MARK_RE));
-    console.log("[FFXIVKR IMG] 매칭 시도:", matches.length, "건");
     return str.replace(IMG_MARK_RE, (m, _q, rawKey) => {
       const key = cleanKey(rawKey);
       const url = KEYMAP[key];
@@ -147,12 +159,12 @@
       return `<img src="${url.replace(/"/g, "&quot;")}" alt="${key}" />`;
     });
   }
-
   function toMarkerText(key) {
     return `\u200B&lt;이미지:${key}&gt;\u200B`;
   }
   function replaceImgsWithMarkers(str) {
-    return str.replace(/<img[^>]*\ssrc="([^"]+)"[^>]*>/gi, (m, src) => {
+    // 대소문자 섞여도 대응
+    return str.replace(/<img[^>]*\ssrc=['"]([^'"]+)['"][^>]*>/gi, (m, src) => {
       const key = REVMAP[normUrl(src)];
       return key ? toMarkerText(key) : m;
     });
@@ -170,7 +182,7 @@
     return html;
   }
 
-  /* ========== 커서 유틸 (수정페이지에서 자동 배치) ========== */
+  /* ========== 커서 복구 ========== */
   function placeCaretEnd(node) {
     try {
       node.focus();
@@ -201,7 +213,6 @@
       node.innerHTML = nextValue;
     }
   }
-
   function processAllEditors() {
     const editors = getAllEditors();
     let changedCount = 0;
@@ -210,17 +221,11 @@
         if (ed.type === "textarea") {
           const before = ed.el.value;
           const after = replaceMarkersInString(before);
-          if (before !== after) {
-            applyChangeToNode(ed.el, after);
-            changedCount++;
-          }
+          if (before !== after) { applyChangeToNode(ed.el, after); changedCount++; }
         } else if (ed.type === "contenteditable") {
           const before = ed.el.innerHTML;
           const after = replaceMarkersInString(before);
-          if (before !== after) {
-            applyChangeToNode(ed.el, after);
-            changedCount++;
-          }
+          if (before !== after) { applyChangeToNode(ed.el, after); changedCount++; }
         }
       } catch (e) {
         console.warn("[FFXIVKR IMG] 처리 오류:", e);
@@ -230,7 +235,7 @@
     return changedCount > 0;
   }
 
-  /* ========== 수정페이지: 초기 1회 역변환 + 라이브 감시 ========== */
+  /* ========== 수정페이지: 초기 역변환 + 라이브 감시 + 재보정 ========== */
   function convertImgsToMarkersOnce() {
     const editors = getAllEditors();
     let changed = 0;
@@ -251,87 +256,66 @@
     });
     if (changed) {
       const main = findPrimaryEditor();
-      if (main?.el) placeCaretEnd(main.el); // 커서가 사라지는 문제 방지
-      console.log("[FFXIVKR IMG] 수정페이지 역변환 완료:", changed, "개 필드");
+      if (main?.el) placeCaretEnd(main.el);
+      console.log("[FFXIVKR IMG] 수정 역변환:", changed);
     }
   }
 
-  // 변경 감시: 에디터 DOM에 이미지가 들어오면 즉시 표식으로 교체
   function observeModifyEditors() {
     const editors = getAllEditors();
     const opts = { childList: true, subtree: true, characterData: true };
-
     editors.forEach((ed) => {
-      const doc = ed.doc || document;
-      const root = ed.el.closest("form") || doc.body; // 폼 전체 감시(에디터 외부에서 끼워넣는 경우 대비)
+      const root =
+        ed.el.closest?.("form") ||
+        ed.doc?.body ||
+        document.body;
       if (!root) return;
-
-      const obs = new MutationObserver((mutations) => {
-        let touched = false;
-        for (const m of mutations) {
-          // 빠른 경로: 추가된 노드 중 IMG가 있으면 처리
-          for (const n of m.addedNodes || []) {
-            if (n.nodeType === 1) {
-              const el = /** @type {Element} */ (n);
-              if (el.matches && el.matches("img")) { touched = true; break; }
-              if (el.querySelector && el.querySelector("img")) { touched = true; break; }
+      const obs = new MutationObserver(() => {
+        // 바뀔 때마다 해당 에디터만 재정리
+        try {
+          if (ed.type === "textarea") {
+            let val = ed.el.value || "";
+            const next = ensureCaretGapsText(replaceImgsWithMarkers(val));
+            if (val !== next) {
+              ed.el.value = next;
+              placeCaretEnd(ed.el);
+            }
+          } else if (ed.type === "contenteditable") {
+            let html = ed.el.innerHTML || "";
+            const next = ensureCaretGapsHTML(replaceImgsWithMarkers(html));
+            if (html !== next) {
+              ed.el.innerHTML = next;
+              placeCaretEnd(ed.el);
             }
           }
-          if (touched) break;
-        }
-        if (touched) {
-          // 에디터 타입별로 다시 역변환 + 간격 보정 + 커서 복구
-          try {
-            if (ed.type === "textarea") {
-              let val = ed.el.value || "";
-              const next = ensureCaretGapsText(replaceImgsWithMarkers(val));
-              if (val !== next) {
-                ed.el.value = next;
-                placeCaretEnd(ed.el);
-              }
-            } else if (ed.type === "contenteditable") {
-              let html = ed.el.innerHTML || "";
-              const next = ensureCaretGapsHTML(replaceImgsWithMarkers(html));
-              if (html !== next) {
-                ed.el.innerHTML = next;
-                placeCaretEnd(ed.el);
-              }
-            }
-          } catch {}
-        }
+        } catch {}
       });
-
       try { obs.observe(root, opts); } catch {}
     });
 
-    // 초기 몇 초 동안 딜레이 로딩을 재보정 (1초 간격 5회)
-    let cnt = 0;
-    const timer = setInterval(() => {
-      cnt++;
-      convertImgsToMarkersOnce();
-      if (cnt >= 5) clearInterval(timer);
-    }, 1000);
+    // 지연 주입 대비: 0ms / 300ms / 1000ms / 2000ms에 재보정
+    [0, 300, 1000, 2000].forEach((ms) => setTimeout(convertImgsToMarkersOnce, ms));
   }
 
   document.addEventListener("DOMContentLoaded", () => {
-    if (PI.isModify) {
-      convertImgsToMarkersOnce();  // 초기 역변환
-      observeModifyEditors();      // 이후 유입되는 IMG도 즉시 표식화
-    }
+    // 수정 페이지여부는 탑 프레임에서만 확실하지만, 하위 프레임에서도 역변환을 시도해도 안전함
+    observeModifyEditors();
   });
 
   /* ========== 제출 직전: 표식 → 이미지 ========== */
   window.addEventListener("submit", () => {
     const okAll = processAllEditors();
-    console.log("[FFXIVKR IMG] submit 시 변환(모두):", okAll);
+    console.log("[FFXIVKR IMG] submit 변환:", okAll);
   }, true);
 
-  /* ========== 버튼 ========== */
+  /* ========== 버튼: 수정 화면에서는 안내만, 글쓰기에서는 수동 변환 허용 ========== */
   function mountButton() {
+    if (!IS_TOP) return; // 버튼은 탑에서만
     if (document.getElementById("ffxivkr-btn")) return;
     const btn = document.createElement("button");
+    const isModifyUI = topPageInfoFallback().isModify;
     btn.id = "ffxivkr-btn";
-    btn.textContent = PI.isModify ? "ℹ️ 수정: 제출 시 자동 변환" : "🔄 <이미지:키> 변환";
+    btn.textContent = isModifyUI ? "ℹ️ 수정: 제출 시 자동 변환" : "🔄 <이미지:키> 변환";
     Object.assign(btn.style, {
       position: "fixed",
       right: "16px",
@@ -341,24 +325,22 @@
       borderRadius: "10px",
       border: "none",
       cursor: "pointer",
-      background: PI.isModify ? "#6b7280" : "#3b82f6",
+      background: isModifyUI ? "#6b7280" : "#3b82f6",
       color: "#fff",
       fontWeight: "600",
       boxShadow: "0 8px 16px rgba(0,0,0,.25)"
     });
-    btn.title = PI.isModify
+    btn.title = isModifyUI
       ? "수정 화면은 편집 편의를 위해 표식을 유지합니다. 저장 시 자동 변환됩니다."
-      : "본문의 <이미지:키워드> 표식을 <img>로 변환";
+      : "본문의 <이미지:키워드> 표식을 <img> 태그로 변환";
     btn.addEventListener("click", () => {
-      if (PI.isModify) {
+      if (isModifyUI) {
         toast("수정 화면에서는 제출 시 자동 변환됩니다 (편집 중에는 표식 유지).");
-        const ed = findPrimaryEditor(); // 커서가 사라져 있다면 복구
-        if (ed?.el) placeCaretEnd(ed.el);
-        return;
+      } else {
+        const okAll = processAllEditors();
+        btn.textContent = okAll ? "✅ 변환 완료" : "ℹ️ 변환할 항목 없음";
+        setTimeout(() => (btn.textContent = "🔄 <이미지:키> 변환"), 1200);
       }
-      const okAll = processAllEditors();
-      btn.textContent = okAll ? "✅ 변환 완료" : "ℹ️ 변환할 항목 없음";
-      setTimeout(() => (btn.textContent = "🔄 <이미지:키> 변환"), 1200);
     });
     document.body.appendChild(btn);
   }
