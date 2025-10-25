@@ -92,35 +92,53 @@
 
   // ===== 실제 변환 수행 =====
   function processEditorNow(editor) {
-    try {
-      if (!editor) editor = findEditorArea();
-      console.log("[FFXIVKR IMG] editor:", editor && editor.where);
-      if (!editor) return false;
+  try {
+    if (!editor) editor = findEditorArea();
+    console.log("[FFXIVKR IMG] editor:", editor && editor.where);
+    if (!editor) return false;
 
-      if (editor.type === "textarea" || editor.type === "iframe-textarea") {
-        const ta = editor.el;
-        const before = ta.value;
-        const after = replaceMarkersInString(before);
-        if (before !== after) {
-          ta.value = after;
-          ta.dispatchEvent(new Event("input", { bubbles: true }));
-          ta.dispatchEvent(new Event("change", { bubbles: true }));
-          return true;
-        }
-      } else if (editor.type === "contenteditable" || editor.type === "iframe-contenteditable") {
-        const el = editor.el;
-        const before = el.innerHTML;
-        const after = replaceMarkersInString(before);
-        if (before !== after) {
-          el.innerHTML = after;
-          return true;
-        }
+    const markChanged = (el, before, after) => {
+      // 변경 적용
+      el.value !== undefined ? (el.value = after) : (el.innerHTML = after);
+
+      // 진단 로그
+      console.log("[FFXIVKR IMG] length:", before.length, "→", after.length);
+      console.log("[FFXIVKR IMG] AFTER preview:", (after || "").slice(0, 200));
+
+      // 시각적 하이라이트 (0.8초)
+      const target = el instanceof HTMLElement ? el : el.parentElement;
+      if (target) {
+        const old = target.style.outline;
+        target.style.outline = "3px solid #22c55e";
+        setTimeout(() => (target.style.outline = old), 800);
       }
-    } catch (e) {
-      console.warn("[FFXIVKR IMG] 처리 오류:", e);
+    };
+
+    if (editor.type === "textarea" || editor.type === "iframe-textarea") {
+      const ta = editor.el;
+      const before = ta.value;
+      const after  = replaceMarkersInString(before);
+      if (before !== after) {
+        markChanged(ta, before, after);
+        // React/Vue 감지용 이벤트
+        ta.dispatchEvent(new Event("input",  { bubbles: true }));
+        ta.dispatchEvent(new Event("change", { bubbles: true }));
+        return true;
+      }
+    } else if (editor.type === "contenteditable" || editor.type === "iframe-contenteditable") {
+      const el = editor.el;
+      const before = el.innerHTML;
+      const after  = replaceMarkersInString(before);
+      if (before !== after) {
+        markChanged(el, before, after);
+        return true;
+      }
     }
-    return false;
+  } catch (e) {
+    console.warn("[FFXIVKR IMG] 처리 오류:", e);
   }
+  return false;
+}
 
   // ===== 글 제출 시 자동 변환 =====
   window.addEventListener(
