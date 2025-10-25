@@ -1,6 +1,6 @@
 (async () => {
-  // 🔹 map.json 주소 (당신의 GitHub ID에 맞게 수정)
-  const MAP_URL = "https://raw.githubusercontent.com/YourID/dcinside-project-ffxivkrm/main/map.json";
+  // 🔹 map.json 주소 
+  const MAP_URL = "https://raw.githubusercontent.com/AnShirley322/dcinside-project-ffxivkrm/main/map.json";
 
   // 🔹 예비 기본값 (map.json 로드 실패 시 대비)
   let KEYMAP = {};
