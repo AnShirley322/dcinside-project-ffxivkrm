@@ -14,10 +14,7 @@
   }
   const PI = pageInfo();
   if (!PI.ok) return; // 대상이 아니면 아무 것도 하지 않음
-
-  
-(async () => {
-  //
+//
   const MAP_URL =
     "https://raw.githubusercontent.com/AnShirley322/dcinside-project-ffxivkrm/main/map.json";
 
