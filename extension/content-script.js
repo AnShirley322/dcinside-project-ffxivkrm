@@ -1,5 +1,5 @@
 (async () => {
-  // 🔗 GitHub map.json RAW 주소
+  //
   const MAP_URL =
     "https://raw.githubusercontent.com/AnShirley322/dcinside-project-ffxivkrm/main/map.json";
 
@@ -72,23 +72,18 @@
     const arr = [];
     const doc = rootDoc || document;
 
-    // textarea들 전부
     doc.querySelectorAll("textarea").forEach((ta) => {
       arr.push({ type: "textarea", el: ta, doc, where: "textarea" });
     });
 
-    // contenteditable
     doc.querySelectorAll('[contenteditable="true"]').forEach((el) => {
       arr.push({ type: "contenteditable", el, doc, where: "contenteditable" });
     });
 
-    // iframe 내부(동일출처에서만 접근 가능)
     doc.querySelectorAll("iframe").forEach((ifr) => {
       try {
         const idoc = ifr.contentDocument;
-        if (idoc) {
-          arr.push(...getAllEditors(idoc));
-        }
+        if (idoc) arr.push(...getAllEditors(idoc));
       } catch {
         /* cross-origin이면 건너뜀 */
       }
@@ -98,7 +93,6 @@
   }
 
   function findPrimaryEditor() {
-    // 우선순위: memo/content 이름 → 아무 textarea → CE
     const doc = document;
     const taNamed =
       doc.querySelector('textarea[name="memo"]') ||
@@ -113,14 +107,11 @@
     const ce = doc.querySelector('[contenteditable="true"]');
     if (ce) return { type: "contenteditable", el: ce, doc, where: "contenteditable" };
 
-    // iframe 내부도 탐색
     const all = getAllEditors();
     return all[0] || null;
   }
 
   /* ========== 패턴/치환 ========== */
-  // 시작: <, ＜(FF1C), 〈(3008), &lt;, &amp;lt;
-  // 끝:   >, ＞(FF1E), 〉(3009), &gt;, &amp;gt;
   const IMG_MARK_RE =
     /(?:&lt;|&amp;lt;|[<\uFF1C\u3008])\s*이미지\s*:\s*(["“”'`]?)\s*([\s\S]*?)\s*\1\s*(?:&gt;|&amp;gt;|[>\uFF1E\u3009])/gi;
 
@@ -136,18 +127,6 @@
     });
   }
 
-  function highlight(el) {
-    try {
-      const win = el?.ownerDocument?.defaultView || window;
-      const HTMLElementCtor = win.HTMLElement || HTMLElement;
-      const target = el instanceof HTMLElementCtor ? el : el.parentElement;
-      if (!target) return;
-      const old = target.style.outline;
-      target.style.outline = "3px solid #22c55e";
-      setTimeout(() => (target.style.outline = old), 800);
-    } catch {}
-  }
-
   function applyChangeToNode(node, nextValue) {
     if ("value" in node) {
       node.value = nextValue;
@@ -157,7 +136,6 @@
     } else {
       node.innerHTML = nextValue;
     }
-    highlight(node);
   }
 
   /* ========== 변환 실행 (모든 에디터 일괄) ========== */
@@ -193,7 +171,7 @@
     return changedCount > 0;
   }
 
-  // 기존 단일 에디터용도 유지(버튼에서 사용)
+  // 단일 에디터용(버튼에서 사용)
   function processEditorNow(editor) {
     if (!editor) editor = findPrimaryEditor();
     console.log("[FFXIVKR IMG] editor:", editor && editor.where);
@@ -253,7 +231,6 @@
     });
     btn.title = "본문의 <이미지:키워드> 표식을 <img> 태그로 변환";
     btn.addEventListener("click", () => {
-      // 모든 필드 일괄 치환 시도
       const okAll = processAllEditors();
       btn.textContent = okAll ? "✅ 변환 완료" : "ℹ️ 변환할 항목 없음";
       setTimeout(() => (btn.textContent = "🔄 <이미지:키> 변환"), 1200);
