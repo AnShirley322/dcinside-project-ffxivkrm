@@ -1,18 +1,32 @@
 {
   "manifest_version": 3,
   "name": "DCInside FFXIVKR 이미지 자동삽입기",
-  "version": "1.3.1",
-  "description": "디시인사이드 FFXIVKR 마이너 갤러리 글쓰기에서 <이미지:키워드>를 자동으로 <img>로 변환합니다.",
+  "version": "1.3.2",
+  "description": "디시인사이드 FFXIVKR 글쓰기/수정에서 <이미지:키>를 <img>로 변환",
   "permissions": ["scripting", "activeTab"],
   "host_permissions": [
     "https://gall.dcinside.com/mgallery/board/write/*",
-    "http://gall.dcinside.com/mgallery/board/write/*"
+    "https://gall.dcinside.com/mgallery/board/modify/*",
+    "http://gall.dcinside.com/mgallery/board/write/*",
+    "http://gall.dcinside.com/mgallery/board/modify/*",
+
+    "https://gall.dcinside.com/board/write/*",
+    "https://gall.dcinside.com/board/modify/*",
+    "http://gall.dcinside.com/board/write/*",
+    "http://gall.dcinside.com/board/modify/*"
   ],
   "content_scripts": [
     {
       "matches": [
         "https://gall.dcinside.com/mgallery/board/write/*",
-        "http://gall.dcinside.com/mgallery/board/write/*"
+        "https://gall.dcinside.com/mgallery/board/modify/*",
+        "http://gall.dcinside.com/mgallery/board/write/*",
+        "http://gall.dcinside.com/mgallery/board/modify/*",
+
+        "https://gall.dcinside.com/board/write/*",
+        "https://gall.dcinside.com/board/modify/*",
+        "http://gall.dcinside.com/board/write/*",
+        "http://gall.dcinside.com/board/modify/*"
       ],
       "js": ["content-script.js"],
       "run_at": "document_idle"
