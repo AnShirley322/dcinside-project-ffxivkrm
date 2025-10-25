@@ -1,5 +1,20 @@
 (async () => {
-  //
+  /* ===== 실행 대상 갤러리 제한: ffxivkr (mgallery 글쓰기/수정만) ===== */
+  const TARGET_GALLERY_ID = "ffxivkr";
+  function isTargetPage() {
+    try {
+      const u = new URL(location.href);
+      // mgallery/board/write|modify 경로 + id=ffxivkr 쿼리
+      const onPath = /\/mgallery\/board\/(write|modify)\//.test(u.pathname);
+      const id = u.searchParams.get("id");
+      return onPath && id === TARGET_GALLERY_ID;
+    } catch {
+      return false;
+    }
+  }
+  if (!isTargetPage()) return; // 대상 아니면 아무 것도 하지 않음
+
+  // 🔗 GitHub map.json RAW 주소
   const MAP_URL =
     "https://raw.githubusercontent.com/AnShirley322/dcinside-project-ffxivkrm/main/map.json";
 
@@ -288,7 +303,7 @@
       background: "#3b82f6",
       color: "#fff",
       fontWeight: "600",
-      boxShadow: "0 6px 16px rgba(0,0,0,.25)"
+      boxShadow: "0 8px 16px rgba(0,0,0,.25)"
     });
     btn.title = "본문의 <이미지:키워드> 표식을 <img> 태그로 변환 (저장 시에도 자동 변환)";
     btn.addEventListener("click", () => {
