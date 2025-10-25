@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "DCInside FFXIVKR 이미지 자동삽입기",
+  "version": "1.0.0",
+  "description": "디시인사이드 FFXIVKR 마이너 갤러리 글쓰기에서 <이미지:키워드>를 자동으로 <img> 태그로 변환합니다.",
+  "permissions": ["scripting", "activeTab"],
+  "host_permissions": [
+    "https://gall.dcinside.com/mgallery/board/write/*",
+    "http://gall.dcinside.com/mgallery/board/write/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://gall.dcinside.com/mgallery/board/write/*",
+        "http://gall.dcinside.com/mgallery/board/write/*"
+      ],
+      "js": ["content-script.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
