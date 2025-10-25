@@ -9,7 +9,7 @@
     return s
       .replace(/[\u00A0\u200B\u200C\u200D\uFEFF]/g, "") // 숨은 공백 제거
       .replace(/\u3000/g, " ")                           // 전각공백 → 일반공백
-      .replace(/[“”„‟«»‚‘’‹›"']/g, "")                  // 다양한 따옴표 제거
+      .replace(/[“”„‟«»‚‘’‹›"']/g, "")                  // 따옴표류 제거
       .replace(/[&;]+$/g, "")                            // 꼬리 & ; 제거
       .trim()
       .replace(/\s+/g, " ");                             // 연속 공백 1칸
@@ -52,19 +52,36 @@
     t._tmr = setTimeout(() => (t.style.display = "none"), 1200);
   }
 
-  /* ========== map.json 로드 ========== */
+  /* ========== map.json 로드 & 역매핑 준비 ========== */
   let KEYMAP = {};
+  let REVMAP = {};
   try {
     const res = await fetch(MAP_URL, { cache: "no-cache" });
     if (res.ok) {
       const raw = await res.json();
       KEYMAP = normalizeKeymap(raw);
+      REVMAP = buildReverseMap(KEYMAP);
       console.log("[FFXIVKR IMG] map.json 불러오기 성공:", Object.keys(KEYMAP).length, "개 항목");
     } else {
       console.warn("[FFXIVKR IMG] map.json 불러오기 실패:", res.status);
     }
   } catch (e) {
     console.warn("[FFXIVKR IMG] map.json 불러오기 오류:", e);
+  }
+
+  function normUrl(u) {
+    try {
+      return decodeURIComponent(u).replace(/"/g, "&quot;");
+    } catch {
+      return u;
+    }
+  }
+  function buildReverseMap(keymap) {
+    const rev = {};
+    for (const [k, url] of Object.entries(keymap || {})) {
+      rev[normUrl(url)] = k;
+    }
+    return rev;
   }
 
   /* ========== 에디터 찾기 ========== */
@@ -84,9 +101,7 @@
       try {
         const idoc = ifr.contentDocument;
         if (idoc) arr.push(...getAllEditors(idoc));
-      } catch {
-        /* cross-origin이면 건너뜀 */
-      }
+      } catch { /* cross-origin */ }
     });
 
     return arr;
@@ -112,9 +127,11 @@
   }
 
   /* ========== 패턴/치환 ========== */
+  // <이미지:키> 표식 인식 (엔티티/전각 괄호/따옴표 허용)
   const IMG_MARK_RE =
     /(?:&lt;|&amp;lt;|[<\uFF1C\u3008])\s*이미지\s*:\s*(["“”'`]?)\s*([\s\S]*?)\s*\1\s*(?:&gt;|&amp;gt;|[>\uFF1E\u3009])/gi;
 
+  // 표식 → <img>
   function replaceMarkersInString(str) {
     const matches = Array.from(str.matchAll(IMG_MARK_RE));
     console.log("[FFXIVKR IMG] 매칭 시도:", matches.length, "건");
@@ -127,6 +144,15 @@
     });
   }
 
+  // <img src="..."> → &lt;이미지:키&gt; (수정 페이지에서 사용)
+  function replaceImgsWithMarkers(str) {
+    return str.replace(/<img[^>]*\ssrc="([^"]+)"[^>]*>/gi, (m, src) => {
+      const key = REVMAP[normUrl(src)];
+      return key ? `&lt;이미지:${key}&gt;` : m;
+    });
+  }
+
+  /* ========== 변환 실행 ========== */
   function applyChangeToNode(node, nextValue) {
     if ("value" in node) {
       node.value = nextValue;
@@ -138,7 +164,7 @@
     }
   }
 
-  /* ========== 변환 실행 (모든 에디터 일괄) ========== */
+  // 모든 에디터에서 표식→이미지 변환
   function processAllEditors() {
     const editors = getAllEditors();
     let changedCount = 0;
@@ -171,7 +197,7 @@
     return changedCount > 0;
   }
 
-  // 단일 에디터용(버튼에서 사용)
+  // 단일 에디터만(버튼에서 사용)
   function processEditorNow(editor) {
     if (!editor) editor = findPrimaryEditor();
     console.log("[FFXIVKR IMG] editor:", editor && editor.where);
@@ -199,7 +225,42 @@
     return false;
   }
 
-  /* ========== 제출 직전 강제 치환 ========== */
+  /* ========== 수정 페이지: 이미지→표식 역변환(1회) ========== */
+  function isModifyPage() {
+    const p = location.pathname;
+    return /\/board\/modify\//.test(p);
+  }
+
+  function convertImgsToMarkersOnce() {
+    const editors = getAllEditors();
+    let changed = 0;
+    editors.forEach((ed) => {
+      try {
+        if (ed.type === "textarea") {
+          const before = ed.el.value || "";
+          const after = replaceImgsWithMarkers(before);
+          if (before !== after) {
+            ed.el.value = after;
+            changed++;
+          }
+        } else if (ed.type === "contenteditable") {
+          const before = ed.el.innerHTML || "";
+          const after = replaceImgsWithMarkers(before);
+          if (before !== after) {
+            ed.el.innerHTML = after;
+            changed++;
+          }
+        }
+      } catch {}
+    });
+    if (changed) console.log("[FFXIVKR IMG] 수정페이지 역변환 완료:", changed, "개 필드");
+  }
+
+  document.addEventListener("DOMContentLoaded", () => {
+    if (isModifyPage()) convertImgsToMarkersOnce();
+  });
+
+  /* ========== 제출 직전 강제 변환(표식→이미지) ========== */
   window.addEventListener(
     "submit",
     () => {
@@ -229,7 +290,7 @@
       fontWeight: "600",
       boxShadow: "0 6px 16px rgba(0,0,0,.25)"
     });
-    btn.title = "본문의 <이미지:키워드> 표식을 <img> 태그로 변환";
+    btn.title = "본문의 <이미지:키워드> 표식을 <img> 태그로 변환 (저장 시에도 자동 변환)";
     btn.addEventListener("click", () => {
       const okAll = processAllEditors();
       btn.textContent = okAll ? "✅ 변환 완료" : "ℹ️ 변환할 항목 없음";
