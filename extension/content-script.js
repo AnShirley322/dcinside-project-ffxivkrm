@@ -1,37 +1,35 @@
 (async () => {
-  /* ===== 대상 갤 제한 (탑 프레임 엄격, 하위 프레임은 허용) ===== */
+  /* ===== 실행 대상 갤러리 제한: ffxivkr (mgallery 글쓰기/수정만) ===== */
   const TARGET_GALLERY_ID = "ffxivkr";
-  const IS_TOP = window.top === window;
-
-  function topPageInfo() {
+  function isTargetPage() {
     try {
       const u = new URL(location.href);
-      const isWrite  = /\/mgallery\/board\/write\//i.test(u.pathname);
-      const isModify = /\/mgallery\/board\/modify\//i.test(u.pathname);
+      // mgallery/board/write|modify 경로 + id=ffxivkr 쿼리
+      const onPath = /\/mgallery\/board\/(write|modify)\//.test(u.pathname);
       const id = u.searchParams.get("id");
-      return { isWrite, isModify, ok: id === TARGET_GALLERY_ID && (isWrite || isModify) };
+      return onPath && id === TARGET_GALLERY_ID;
     } catch {
-      return { isWrite: false, isModify: false, ok: false };
+      return false;
     }
   }
-  const TOP = IS_TOP ? topPageInfo() : { isWrite: false, isModify: false, ok: true };
-  if (IS_TOP && !TOP.ok) return;
+  if (!isTargetPage()) return; // 대상 아니면 아무 것도 하지 않음
 
-  /* ===== 설정 ===== */
-  const MAP_URL = "https://raw.githubusercontent.com/AnShirley322/dcinside-project-ffxivkrm/main/map.json";
+  // 🔗 GitHub map.json RAW 주소
+  const MAP_URL =
+    "https://raw.githubusercontent.com/AnShirley322/dcinside-project-ffxivkrm/main/map.json";
 
-  /* ===== 유틸 ===== */
-  const ZW = "\u200B";
+  /* ========== 유틸 ========== */
   function cleanKey(s) {
     if (!s) return "";
     return s
-      .replace(/[\u00A0\u200B\u200C\u200D\uFEFF]/g, "")
-      .replace(/\u3000/g, " ")
-      .replace(/[“”„‟«»‚‘’‹›"']/g, "")
-      .replace(/[&;]+$/g, "")
+      .replace(/[\u00A0\u200B\u200C\u200D\uFEFF]/g, "") // 숨은 공백 제거
+      .replace(/\u3000/g, " ")                           // 전각공백 → 일반공백
+      .replace(/[“”„‟«»‚‘’‹›"']/g, "")                  // 따옴표류 제거
+      .replace(/[&;]+$/g, "")                            // 꼬리 & ; 제거
       .trim()
-      .replace(/\s+/g, " ");
+      .replace(/\s+/g, " ");                             // 연속 공백 1칸
   }
+
   function normalizeKeymap(rawMap) {
     const out = {};
     for (const [k, v] of Object.entries(rawMap || {})) {
@@ -40,197 +38,283 @@
     }
     return out;
   }
-  function normUrl(u) { try { return decodeURIComponent(u).replace(/"/g, "&quot;"); } catch { return u; } }
 
-  /* ===== map.json 로드 및 역맵 ===== */
+  function toast(msg) {
+    const id = "ffxivkr-toast";
+    let t = document.getElementById(id);
+    if (!t) {
+      t = document.createElement("div");
+      t.id = id;
+      Object.assign(t.style, {
+        position: "fixed",
+        left: "50%",
+        bottom: "24px",
+        transform: "translateX(-50%)",
+        background: "rgba(34,197,94,.95)",
+        color: "#fff",
+        padding: "8px 12px",
+        borderRadius: "10px",
+        zIndex: 2147483647,
+        fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif",
+        fontSize: "13px",
+        boxShadow: "0 8px 24px rgba(0,0,0,.25)"
+      });
+      document.body.appendChild(t);
+    }
+    t.textContent = msg;
+    t.style.display = "block";
+    clearTimeout(t._tmr);
+    t._tmr = setTimeout(() => (t.style.display = "none"), 1200);
+  }
+
+  /* ========== map.json 로드 & 역매핑 준비 ========== */
   let KEYMAP = {};
   let REVMAP = {};
   try {
-    const r = await fetch(MAP_URL, { cache: "no-cache" });
-    if (r.ok) {
-      const raw = await r.json();
+    const res = await fetch(MAP_URL, { cache: "no-cache" });
+    if (res.ok) {
+      const raw = await res.json();
       KEYMAP = normalizeKeymap(raw);
-      for (const [k, url] of Object.entries(KEYMAP)) REVMAP[normUrl(url)] = k;
-      console.log("[FFXIVKR IMG] map.json OK:", Object.keys(KEYMAP).length);
+      REVMAP = buildReverseMap(KEYMAP);
+      console.log("[FFXIVKR IMG] map.json 불러오기 성공:", Object.keys(KEYMAP).length, "개 항목");
+    } else {
+      console.warn("[FFXIVKR IMG] map.json 불러오기 실패:", res.status);
     }
-  } catch {}
+  } catch (e) {
+    console.warn("[FFXIVKR IMG] map.json 불러오기 오류:", e);
+  }
 
-  /* ===== 에디터 찾기 (모든 프레임) ===== */
+  function normUrl(u) {
+    try {
+      return decodeURIComponent(u).replace(/"/g, "&quot;");
+    } catch {
+      return u;
+    }
+  }
+  function buildReverseMap(keymap) {
+    const rev = {};
+    for (const [k, url] of Object.entries(keymap || {})) {
+      rev[normUrl(url)] = k;
+    }
+    return rev;
+  }
+
+  /* ========== 에디터 찾기 ========== */
   function getAllEditors(rootDoc) {
     const arr = [];
     const doc = rootDoc || document;
-    doc.querySelectorAll("textarea").forEach(el => arr.push({ type: "ta", el, doc }));
-    doc.querySelectorAll('[contenteditable="true"]').forEach(el => arr.push({ type: "ce", el, doc }));
-    doc.querySelectorAll("iframe").forEach(ifr => {
-      try { if (ifr.contentDocument) arr.push(...getAllEditors(ifr.contentDocument)); } catch {}
+
+    doc.querySelectorAll("textarea").forEach((ta) => {
+      arr.push({ type: "textarea", el: ta, doc, where: "textarea" });
     });
+
+    doc.querySelectorAll('[contenteditable="true"]').forEach((el) => {
+      arr.push({ type: "contenteditable", el, doc, where: "contenteditable" });
+    });
+
+    doc.querySelectorAll("iframe").forEach((ifr) => {
+      try {
+        const idoc = ifr.contentDocument;
+        if (idoc) arr.push(...getAllEditors(idoc));
+      } catch { /* cross-origin */ }
+    });
+
     return arr;
   }
-  function focusEnd(node) {
-    try {
-      node.focus();
-      const d = node.ownerDocument, w = d.defaultView || window;
-      if ("value" in node) {
-        const L = node.value.length;
-        node.setSelectionRange(L, L);
-      } else {
-        const rng = d.createRange();
-        rng.selectNodeContents(node);
-        rng.collapse(false);
-        const sel = w.getSelection(); sel.removeAllRanges(); sel.addRange(rng);
-      }
-    } catch {}
+
+  function findPrimaryEditor() {
+    const doc = document;
+    const taNamed =
+      doc.querySelector('textarea[name="memo"]') ||
+      doc.querySelector('textarea[name="content"]') ||
+      doc.querySelector("#memo") ||
+      doc.querySelector("#content");
+    if (taNamed) return { type: "textarea", el: taNamed, doc, where: "textarea[name]" };
+
+    const anyTa = doc.querySelector("textarea");
+    if (anyTa) return { type: "textarea", el: anyTa, doc, where: "textarea" };
+
+    const ce = doc.querySelector('[contenteditable="true"]');
+    if (ce) return { type: "contenteditable", el: ce, doc, where: "contenteditable" };
+
+    const all = getAllEditors();
+    return all[0] || null;
   }
 
-  /* ===== 표식 <-> 이미지 변환 (문자열 방식: 제출 시 사용) ===== */
-  const IMG_MARK_RE = new RegExp(
-    "(?:&lt;|&amp;lt;|[<\\uFF1C\\u3008])[\\u200B\\u200C\\u200D\\uFEFF]*\\s*이미지\\s*:\\s*([" + "“”'`" + "]?)[\\u200B\\u200C\\u200D\\uFEFF]*\\s*([\\s\\S]*?)\\s*[\\u200B\\u200C\\u200D\\uFEFF]*\\1\\s*[\\u200B\\u200C\\u200D\\uFEFF]*(?:&gt;|&amp;gt;|[>\\uFF1E\\u3009])",
-    "gi"
-  );
-  function markersToImgs(str) {
+  /* ========== 패턴/치환 ========== */
+  // <이미지:키> 표식 인식 (엔티티/전각 괄호/따옴표 허용)
+  const IMG_MARK_RE =
+    /(?:&lt;|&amp;lt;|[<\uFF1C\u3008])\s*이미지\s*:\s*(["“”'`]?)\s*([\s\S]*?)\s*\1\s*(?:&gt;|&amp;gt;|[>\uFF1E\u3009])/gi;
+
+  // 표식 → <img>
+  function replaceMarkersInString(str) {
+    const matches = Array.from(str.matchAll(IMG_MARK_RE));
+    console.log("[FFXIVKR IMG] 매칭 시도:", matches.length, "건");
     return str.replace(IMG_MARK_RE, (m, _q, rawKey) => {
       const key = cleanKey(rawKey);
       const url = KEYMAP[key];
-      return url ? `<img src="${url.replace(/"/g, "&quot;")}" alt="${key}" />` : m;
+      console.log("[FFXIVKR IMG] 키:", JSON.stringify(key), "→", url ? "HIT" : "MISS");
+      if (!url) return m;
+      return `<img src="${url.replace(/"/g, "&quot;")}" alt="${key}" />`;
     });
   }
 
-  /* ===== DOM 레벨 강제 역변환 (수정 페이지에서 커서 확보용) ===== */
-  function imgNodeToMarkerNode(doc, imgEl) {
-    const src = imgEl.getAttribute("src") || "";
-    const key = REVMAP[normUrl(src)];
-    const text = key ? `${ZW}<이미지:${key}>${ZW}` : `${ZW}[IMG]${ZW}`; // 키를 못 찾으면 플레이스홀더
-    // 텍스트 노드로 교체 (HTML 해석 금지)
-    const tn = doc.createTextNode(text);
-    imgEl.replaceWith(tn);
-    // 이미지 사이 간격 보장
-    const parent = tn.parentNode;
-    if (parent && parent.nodeType === 1) {
-      // 연속 텍스트 사이 <br> 삽입(편집기 커서 안정)
-      const next = tn.nextSibling;
-      if (next && next.nodeType === 3) {
-        parent.insertBefore(doc.createElement("br"), next);
-      }
-    }
-  }
-  function forceDomReverseInEditor(ed) {
-    const doc = ed.doc || document;
-    if (ed.type === "ce") {
-      ed.el.querySelectorAll("img").forEach(img => imgNodeToMarkerNode(doc, img));
-      // 이미지 태그가 아예 사라졌을 때도 마지막에 줄 하나 보장
-      if (!ed.el.innerHTML.match(/<br>|<p>|<div>/i)) {
-        ed.el.appendChild(doc.createElement("br"));
-      }
-    } else if (ed.type === "ta") {
-      // textarea는 문자열 치환으로 충분
-      let v = ed.el.value || "";
-      // 안전: 실제 <img ...>가 원문에 들어있다면 엔티티화
-      if (/<img[\s\S]*?>/i.test(v)) v = v.replace(/<img[\s\S]*?>/gi, "[IMG]");
-      // &lt;img…&gt; 형태도 [IMG]로
-      v = v.replace(/&lt;img[\s\S]*?&gt;/gi, "[IMG]");
-      ed.el.value = v;
-    }
-  }
-
-  /* ===== 수정 화면용 라이브 감시 ===== */
-  function observeAndReverse() {
-    const eds = getAllEditors();
-    // 초기 강제 역변환
-    eds.forEach(ed => forceDomReverseInEditor(ed));
-    // 커서 복구
-    const main = eds[0]; if (main?.el) focusEnd(main.el);
-
-    // 감시: IMG 재삽입 즉시 텍스트로 환원
-    eds.forEach(ed => {
-      const root = ed.el.closest?.("form") || ed.doc?.body || document.body;
-      if (!root) return;
-      const obs = new MutationObserver((muts) => {
-        let need = false;
-        for (const m of muts) {
-          for (const n of m.addedNodes || []) {
-            if (n.nodeType === 1) {
-              const el = /** @type {Element} */ (n);
-              if (el.tagName && el.tagName.toLowerCase() === "img") { need = true; break; }
-              if (el.querySelector && el.querySelector("img")) { need = true; break; }
-            }
-          }
-          if (need) break;
-        }
-        if (need) {
-          try { forceDomReverseInEditor(ed); focusEnd(ed.el); } catch {}
-        }
-      });
-      try { obs.observe(root, { childList: true, subtree: true, characterData: false }); } catch {}
+  // <img src="..."> → &lt;이미지:키&gt; (수정 페이지에서 사용)
+  function replaceImgsWithMarkers(str) {
+    return str.replace(/<img[^>]*\ssrc="([^"]+)"[^>]*>/gi, (m, src) => {
+      const key = REVMAP[normUrl(src)];
+      return key ? `&lt;이미지:${key}&gt;` : m;
     });
-
-    // 지연 주입 대비 재보정(0.2s, 0.8s, 2s, 4s)
-    [200, 800, 2000, 4000].forEach(t => setTimeout(() => {
-      eds.forEach(ed => { try { forceDomReverseInEditor(ed); } catch {} });
-    }, t));
   }
 
-  /* ===== 제출 직전: 표식 → 이미지 ===== */
-  window.addEventListener("submit", () => {
-    const eds = getAllEditors();
-    eds.forEach(ed => {
+  /* ========== 변환 실행 ========== */
+  function applyChangeToNode(node, nextValue) {
+    if ("value" in node) {
+      node.value = nextValue;
+      node.dispatchEvent(new Event("input", { bubbles: true }));
+      node.dispatchEvent(new Event("change", { bubbles: true }));
+      node.dispatchEvent(new Event("keyup", { bubbles: true }));
+    } else {
+      node.innerHTML = nextValue;
+    }
+  }
+
+  // 모든 에디터에서 표식→이미지 변환
+  function processAllEditors() {
+    const editors = getAllEditors();
+    let changedCount = 0;
+
+    editors.forEach((ed) => {
       try {
-        if (ed.type === "ta") {
+        if (ed.type === "textarea") {
+          const before = ed.el.value;
+          const after = replaceMarkersInString(before);
+          if (before !== after) {
+            console.log("[FFXIVKR IMG] textarea changed length:", before.length, "→", after.length);
+            applyChangeToNode(ed.el, after);
+            changedCount++;
+          }
+        } else if (ed.type === "contenteditable") {
+          const before = ed.el.innerHTML;
+          const after = replaceMarkersInString(before);
+          if (before !== after) {
+            console.log("[FFXIVKR IMG] CE changed length:", before.length, "→", after.length);
+            applyChangeToNode(ed.el, after);
+            changedCount++;
+          }
+        }
+      } catch (e) {
+        console.warn("[FFXIVKR IMG] 처리 오류:", e);
+      }
+    });
+
+    if (changedCount > 0) toast(`이미지 표식 치환: ${changedCount}개 필드`);
+    return changedCount > 0;
+  }
+
+  // 단일 에디터만(버튼에서 사용)
+  function processEditorNow(editor) {
+    if (!editor) editor = findPrimaryEditor();
+    console.log("[FFXIVKR IMG] editor:", editor && editor.where);
+    if (!editor) return false;
+
+    if (editor.type === "textarea") {
+      const before = editor.el.value;
+      const after = replaceMarkersInString(before);
+      if (before !== after) {
+        console.log("[FFXIVKR IMG] length:", before.length, "→", after.length);
+        console.log("[FFXIVKR IMG] AFTER preview:", (after || "").slice(0, 200));
+        applyChangeToNode(editor.el, after);
+        return true;
+      }
+    } else if (editor.type === "contenteditable") {
+      const before = editor.el.innerHTML;
+      const after = replaceMarkersInString(before);
+      if (before !== after) {
+        console.log("[FFXIVKR IMG] length:", before.length, "→", after.length);
+        console.log("[FFXIVKR IMG] AFTER preview:", (after || "").slice(0, 200));
+        applyChangeToNode(editor.el, after);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /* ========== 수정 페이지: 이미지→표식 역변환(1회) ========== */
+  function isModifyPage() {
+    const p = location.pathname;
+    return /\/board\/modify\//.test(p);
+  }
+
+  function convertImgsToMarkersOnce() {
+    const editors = getAllEditors();
+    let changed = 0;
+    editors.forEach((ed) => {
+      try {
+        if (ed.type === "textarea") {
           const before = ed.el.value || "";
-          const after  = markersToImgs(before);
-          if (before !== after) ed.el.value = after;
-        } else if (ed.type === "ce") {
+          const after = replaceImgsWithMarkers(before);
+          if (before !== after) {
+            ed.el.value = after;
+            changed++;
+          }
+        } else if (ed.type === "contenteditable") {
           const before = ed.el.innerHTML || "";
-          const after  = markersToImgs(before);
-          if (before !== after) ed.el.innerHTML = after;
+          const after = replaceImgsWithMarkers(before);
+          if (before !== after) {
+            ed.el.innerHTML = after;
+            changed++;
+          }
         }
       } catch {}
     });
-  }, true);
+    if (changed) console.log("[FFXIVKR IMG] 수정페이지 역변환 완료:", changed, "개 필드");
+  }
 
-  /* ===== 버튼 (탑 프레임만 표시) ===== */
+  document.addEventListener("DOMContentLoaded", () => {
+    if (isModifyPage()) convertImgsToMarkersOnce();
+  });
+
+  /* ========== 제출 직전 강제 변환(표식→이미지) ========== */
+  window.addEventListener(
+    "submit",
+    () => {
+      const okAll = processAllEditors();
+      console.log("[FFXIVKR IMG] submit 시 변환(모두):", okAll);
+    },
+    true
+  );
+
+  /* ========== 수동 변환 버튼 ========== */
   function mountButton() {
-    if (!IS_TOP) return;
     if (document.getElementById("ffxivkr-btn")) return;
     const btn = document.createElement("button");
     btn.id = "ffxivkr-btn";
-    const isModifyUI = topPageInfo().isModify;
-    btn.textContent = isModifyUI ? "ℹ️ 수정: 편집은 표식, 제출 시 자동 변환" : "🔄 <이미지:키> 변환";
+    btn.textContent = "🔄 <이미지:키> 변환";
     Object.assign(btn.style, {
-      position: "fixed", right: "16px", bottom: "16px", zIndex: 2147483647,
-      padding: "10px 12px", borderRadius: "10px", border: "none", cursor: "pointer",
-      background: isModifyUI ? "#6b7280" : "#3b82f6", color: "#fff", fontWeight: "600",
+      position: "fixed",
+      right: "16px",
+      bottom: "16px",
+      zIndex: 2147483647,
+      padding: "10px 12px",
+      borderRadius: "10px",
+      border: "none",
+      cursor: "pointer",
+      background: "#3b82f6",
+      color: "#fff",
+      fontWeight: "600",
       boxShadow: "0 8px 16px rgba(0,0,0,.25)"
     });
+    btn.title = "본문의 <이미지:키워드> 표식을 <img> 태그로 변환 (저장 시에도 자동 변환)";
     btn.addEventListener("click", () => {
-      if (isModifyUI) {
-        // 수정 화면에서는 안내만 (항상 표식 유지)
-        return;
-      } else {
-        // 글쓰기 화면 수동 미리 변환
-        const eds = getAllEditors();
-        let any = false;
-        eds.forEach(ed => {
-          try {
-            if (ed.type === "ta") {
-              const b = ed.el.value || "", a = markersToImgs(b);
-              if (b !== a) { ed.el.value = a; any = true; }
-            } else {
-              const b = ed.el.innerHTML || "", a = markersToImgs(b);
-              if (b !== a) { ed.el.innerHTML = a; any = true; }
-            }
-          } catch {}
-        });
-        btn.textContent = any ? "✅ 변환 완료" : "ℹ️ 변환할 항목 없음";
-        setTimeout(() => (btn.textContent = "🔄 <이미지:키> 변환"), 1200);
-      }
+      const okAll = processAllEditors();
+      btn.textContent = okAll ? "✅ 변환 완료" : "ℹ️ 변환할 항목 없음";
+      setTimeout(() => (btn.textContent = "🔄 <이미지:키> 변환"), 1200);
     });
     document.body.appendChild(btn);
   }
 
-  /* ===== 시작 ===== */
-  document.addEventListener("DOMContentLoaded", () => {
-    mountButton();
-    // 수정 화면일 가능성이 높으면 즉시 감시 시작(하위 프레임에서도 안전)
-    observeAndReverse();
-  });
+  document.readyState === "loading"
+    ? document.addEventListener("DOMContentLoaded", mountButton)
+    : mountButton();
 })();
