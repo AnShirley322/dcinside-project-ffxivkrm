@@ -1,8 +1,13 @@
 {
   "manifest_version": 3,
   "name": "DCInside FFXIVKR 이미지 자동삽입기",
-  "version": "1.6.2",
-  "description": "FFXIVKR 마이너 갤러리 글쓰기/수정에서 <이미지:키워드>를 <img>로 변환. 수정 화면은 표식 상태로 편집, 제출 시 자동 변환.",
+  "version": "1.6.3",
+  "description": "FFXIVKR 마이너 갤러리 글쓰기/수정에서 <이미지:키워드>를 자동으로 이미지로 변환합니다.",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
   "content_scripts": [
     {
       "matches": [
